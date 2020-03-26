@@ -18,7 +18,7 @@ public class SomeTest: HephaestusForge.ForgeObject
 }
 
 [Serializable]
-public class SomeTestv : HephaestusForge.ForgeObject
+public class SomeTestv
 {
     [SerializeField]
     private Button button;

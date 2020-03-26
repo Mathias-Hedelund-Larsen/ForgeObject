@@ -26,29 +26,18 @@ namespace HephaestusForge
         [NonSerialized]
         private Dictionary<FieldInfo, FieldInfo> _childParentMap;
 
-        public static T CreateUninitialized<T>() where T : ForgeObject
+        private static string InsertObjectID(string json)
         {
-            return (T)FormatterServices.GetUninitializedObject(typeof(T));
-        }
-
-        public static ForgeObject CreateUninitialized(Type forgeObjectChildType)
-        {
-            return (ForgeObject)FormatterServices.GetUninitializedObject(forgeObjectChildType);
-        }
-
-        public static T CreateFromJson<T>(string json) where T : ForgeObject
-        {
-#if UNITY_EDITOR
             string[] jsondata = json.Split('\n');
 
             for (int i = 0; i < jsondata.Length; i++)
             {
-                if(jsondata[i].Contains("{") && jsondata[i].Contains("}"))
+                if (jsondata[i].Contains("{") && jsondata[i].Contains("}"))
                 {
                     GetSubStringBetweenChars(jsondata[i], '{', '}', out string full, out string inside);
 
                     var split = inside.Split(':');
-                    
+
                     Type editorObjectExtensions = Type.GetType("HephaestusForge.UnityEditorObjectExtensions, Assembly-CSharp-Editor");
                     MethodInfo getObjectByInstanceIDMethod = editorObjectExtensions.GetMethod("GetObjectByInstanceID", BindingFlags.Public | BindingFlags.Static);
 
@@ -58,30 +47,72 @@ namespace HephaestusForge
                 }
             }
 
-            json = string.Join("\n", jsondata);
+            return string.Join("\n", jsondata);
+        }
+
+        private static void GetSubStringBetweenChars(string origin, char start, char end, out string fullMatch, out string insideEncapsulation)
+        {
+            var match = Regex.Match(origin, string.Format(@"\{0}(.*?)\{1}", start, end));
+            fullMatch = match.Groups[0].Value;
+            insideEncapsulation = match.Groups[1].Value;
+        }
+
+
+        public static T CreateUninitialized<T>() where T : ForgeObject
+        {
+            var instance = (T)FormatterServices.GetUninitializedObject(typeof(T));
+            instance.Init();
+            return instance;
+        }
+
+        public static ForgeObject CreateUninitialized(Type forgeObjectChildType)
+        {
+            var instance = (ForgeObject)FormatterServices.GetUninitializedObject(forgeObjectChildType);
+            instance.Init();
+            return instance;
+        }
+
+        public static T CreateFromJson<T>(string json) where T : ForgeObject
+        {
+#if UNITY_EDITOR
+            json = InsertObjectID(json);
 #endif
 
-            return JsonUtility.FromJson<T>(json);
+            var instance = JsonUtility.FromJson<T>(json);
+            instance.Init();
+            return instance;
         }
 
         public static ForgeObject CreateFromJson(string json, Type forgeObjectChildType)
         {
-            return (ForgeObject)JsonUtility.FromJson(json, forgeObjectChildType);
+#if UNITY_EDITOR
+            json = InsertObjectID(json);
+#endif
+
+            var instance = (ForgeObject)JsonUtility.FromJson(json, forgeObjectChildType);
+            instance.Init();
+            return instance;
         }
 
         public static T Clone<T>(T original) where T : ForgeObject
         {
-            return (T)original.MemberwiseClone();
+            var clone = (T)original.MemberwiseClone();
+            clone.Init();
+            return clone;
         }
 
         public static ForgeObject Clone(ForgeObject forgeObject)
         {
-            return (ForgeObject)forgeObject.MemberwiseClone();
+            var clone = (ForgeObject)forgeObject.MemberwiseClone();
+            clone.Init();
+            return clone;
         }
 
         public static T Create<T>() where T : ForgeObject, new()
         {
-            return new T();
+            var instance = new T();
+            instance.Init();
+            return instance;
         }
 
         /// <summary>
@@ -97,16 +128,49 @@ namespace HephaestusForge
                 throw new MissingMethodException("Cant find a parameterless constructor, please make sure that the ForgeObject child class has a parameterless constructor.");
             }
 #endif
-
-            return (ForgeObject)Activator.CreateInstance(forgeObjectChildType);
+            var instance = (ForgeObject)Activator.CreateInstance(forgeObjectChildType);
+            instance.Init();
+            return instance;
         }
 
-        private static void GetSubStringBetweenChars(string origin, char start, char end, out string fullMatch, out string insideEncapsulation)
+        private void GetUnityEngineObjectIdenfication(int i, List<string> json, object target, MethodInfo getSceneGuidAndObjectIDMethod)
         {
-            var match = Regex.Match(origin, string.Format(@"\{0}(.*?)\{1}", start, end));
-            fullMatch = match.Groups[0].Value;
-            insideEncapsulation = match.Groups[1].Value;
+            if (target != null)
+            {
+                int objectID = 0;
+                string sceneGuid = "";
+                var args = new object[3] { target, sceneGuid, objectID };
+
+                getSceneGuidAndObjectIDMethod.Invoke(null, args);
+
+                for (int t = i + 2; t < json.Count; t++)
+                {
+                    if (json[t].Contains("}"))
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        json.RemoveAt(t);
+                    }
+                }
+
+                json[i + 1] = $"{{{args[1]}:{args[2]}}}";
+            }
         }
+
+        private IEnumerable<FieldInfo> GetNestedRoot(FieldInfo field)
+        {
+            while (_childParentMap.ContainsKey(field))
+            {
+                yield return field;
+                field = _childParentMap[field];
+            }
+
+            yield return field;
+        }
+
+        protected virtual void Init() { }
 
         /// <summary>
         /// Get the data of this class as json string
@@ -132,8 +196,6 @@ namespace HephaestusForge
                 MethodInfo getSceneGuidAndObjectIDMethod = editorObjectExtensions.GetMethod("GetSceneGuidAndObjectID", BindingFlags.Public | BindingFlags.Static);
                 
                 var json = JsonUtility.ToJson(this, true).Split('\n').ToList();
-
-                Debug.Log(JsonUtility.ToJson(this, true));
 
                 for (int i = json.Count - 1; i >= 0 ; i--)
                 {
@@ -179,42 +241,6 @@ namespace HephaestusForge
 #endif
         }
 
-        private void GetUnityEngineObjectIdenfication(int i, List<string> json, object target, MethodInfo getSceneGuidAndObjectIDMethod)
-        {
-            if (target != null)
-            {
-                int objectID = 0;
-                string sceneGuid = "";
-                var args = new object[3] { target, sceneGuid, objectID };
-
-                getSceneGuidAndObjectIDMethod.Invoke(null, args);
-
-                for (int t = i + 2; t < json.Count; t++)
-                {
-                    if (json[t].Contains("}"))
-                    {
-                        break;
-                    }
-                    else
-                    {
-                        json.RemoveAt(t);
-                    }
-                }
-
-                json[i + 1] = $"{{{args[1]}:{args[2]}}}";
-            }
-        }
-
-        private IEnumerable<FieldInfo> GetNestedRoot(FieldInfo field)
-        {
-            while (_childParentMap.ContainsKey(field))
-            {
-                yield return field;
-                field = _childParentMap[field];
-            }
-
-            yield return field;
-        }
 
         /// <summary>
         /// Get the names of fields that Json utility can access.

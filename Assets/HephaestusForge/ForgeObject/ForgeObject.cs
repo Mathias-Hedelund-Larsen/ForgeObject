@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace HephaestusForge
@@ -37,6 +38,29 @@ namespace HephaestusForge
 
         public static T CreateFromJson<T>(string json) where T : ForgeObject
         {
+#if UNITY_EDITOR
+            string[] jsondata = json.Split('\n');
+
+            for (int i = 0; i < jsondata.Length; i++)
+            {
+                if(jsondata[i].Contains("{") && jsondata[i].Contains("}"))
+                {
+                    GetSubStringBetweenChars(jsondata[i], '{', '}', out string full, out string inside);
+
+                    var split = inside.Split(':');
+                    
+                    Type editorObjectExtensions = Type.GetType("HephaestusForge.UnityEditorObjectExtensions, Assembly-CSharp-Editor");
+                    MethodInfo getObjectByInstanceIDMethod = editorObjectExtensions.GetMethod("GetObjectByInstanceID", BindingFlags.Public | BindingFlags.Static);
+
+                    var obj = (UnityEngine.Object)getObjectByInstanceIDMethod.Invoke(null, new object[2] { int.Parse(split[1]), split[0] });
+
+                    jsondata[i] = $"\"instanceID\":{obj.GetInstanceID()}";
+                }
+            }
+
+            json = string.Join("\n", jsondata);
+#endif
+
             return JsonUtility.FromJson<T>(json);
         }
 
@@ -77,6 +101,13 @@ namespace HephaestusForge
             return (ForgeObject)Activator.CreateInstance(forgeObjectChildType);
         }
 
+        private static void GetSubStringBetweenChars(string origin, char start, char end, out string fullMatch, out string insideEncapsulation)
+        {
+            var match = Regex.Match(origin, string.Format(@"\{0}(.*?)\{1}", start, end));
+            fullMatch = match.Groups[0].Value;
+            insideEncapsulation = match.Groups[1].Value;
+        }
+
         /// <summary>
         /// Get the data of this class as json string
         /// </summary>
@@ -97,10 +128,12 @@ namespace HephaestusForge
 
             if (_editorJsonData == null && _jsonFields.Any(f => f.FieldType.IsSubclassOf(typeof(UnityEngine.Object)) || f.FieldType == typeof(UnityEngine.Object)))
             {
-                Type _editorObjectExtensions = Type.GetType("HephaestusForge.UnityEditorObjectExtensions, Assembly-CSharp-Editor");
-                MethodInfo _getSceneGuidAndObjectIDMethod = _editorObjectExtensions.GetMethod("GetSceneGuidAndObjectID", BindingFlags.Public | BindingFlags.Static);
+                Type editorObjectExtensions = Type.GetType("HephaestusForge.UnityEditorObjectExtensions, Assembly-CSharp-Editor");
+                MethodInfo getSceneGuidAndObjectIDMethod = editorObjectExtensions.GetMethod("GetSceneGuidAndObjectID", BindingFlags.Public | BindingFlags.Static);
                 
                 var json = JsonUtility.ToJson(this, true).Split('\n').ToList();
+
+                Debug.Log(JsonUtility.ToJson(this, true));
 
                 for (int i = json.Count - 1; i >= 0 ; i--)
                 {
@@ -112,39 +145,28 @@ namespace HephaestusForge
                         {
                             if (_childParentMap.ContainsKey(field))
                             {
-                                var nestedRoot = GetNestedRoot(field).ToArray().Reverse();
+                                var nestedRoot = GetNestedRoot(field).Reverse().ToArray();
+
+                                var target = (object)this;
+
+                                for (int t = 0; t < nestedRoot.Length; t++)
+                                {
+                                    target = nestedRoot[t].GetValue(target);
+                                }
+
+                                GetUnityEngineObjectIdenfication(i, json, target, getSceneGuidAndObjectIDMethod);
                             }
                             else
                             {
-                                UnityEngine.Object obj = (UnityEngine.Object)field.GetValue(this);
+                                UnityEngine.Object target = (UnityEngine.Object)field.GetValue(this);
 
-                                if (obj)
-                                {
-                                    int objectID = 0;
-                                    string sceneGuid = "";
-                                    var args = new object[3] { obj, sceneGuid, objectID };
-
-                                    _getSceneGuidAndObjectIDMethod.Invoke(null, args);
-
-                                    for (int t = i + 1; t < json.Count; t++)
-                                    {
-                                        if (json[t].Contains("}"))
-                                        {
-                                            json.RemoveAt(t);
-                                            break;
-                                        }
-                                        else
-                                        {
-                                            json.RemoveAt(t);
-                                        }
-                                    }
-
-                                    json[i] = $"{{{sceneGuid}:{objectID}}}";
-                                }
+                                GetUnityEngineObjectIdenfication(i, json, target, getSceneGuidAndObjectIDMethod);                                
                             }
                         }
                     }
                 }
+
+                _editorJsonData = string.Join("\n", json);
             }
             else
             {
@@ -157,6 +179,32 @@ namespace HephaestusForge
 #endif
         }
 
+        private void GetUnityEngineObjectIdenfication(int i, List<string> json, object target, MethodInfo getSceneGuidAndObjectIDMethod)
+        {
+            if (target != null)
+            {
+                int objectID = 0;
+                string sceneGuid = "";
+                var args = new object[3] { target, sceneGuid, objectID };
+
+                getSceneGuidAndObjectIDMethod.Invoke(null, args);
+
+                for (int t = i + 2; t < json.Count; t++)
+                {
+                    if (json[t].Contains("}"))
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        json.RemoveAt(t);
+                    }
+                }
+
+                json[i + 1] = $"{{{args[1]}:{args[2]}}}";
+            }
+        }
+
         private IEnumerable<FieldInfo> GetNestedRoot(FieldInfo field)
         {
             while (_childParentMap.ContainsKey(field))
@@ -164,6 +212,8 @@ namespace HephaestusForge
                 yield return field;
                 field = _childParentMap[field];
             }
+
+            yield return field;
         }
 
         /// <summary>
@@ -265,6 +315,8 @@ namespace HephaestusForge
                         fieldInfos.Add(field);
                     }
                 }
+
+                _jsonFields = fieldInfos.ToArray();
             }
 
             return _jsonFields;

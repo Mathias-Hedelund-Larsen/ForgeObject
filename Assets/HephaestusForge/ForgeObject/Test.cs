@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 [Serializable]
 public class SomeTest: HephaestusForge.ForgeObject
@@ -11,6 +12,16 @@ public class SomeTest: HephaestusForge.ForgeObject
 
     [SerializeField]
     private Transform trans;
+
+    [SerializeField]
+    private SomeTestv testv;
+}
+
+[Serializable]
+public class SomeTestv : HephaestusForge.ForgeObject
+{
+    [SerializeField]
+    private Button button;
 }
 
 public class Test : MonoBehaviour
@@ -21,7 +32,8 @@ public class Test : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        var data = test.ToJsonString();
+        string te = test.ToJsonString();
+        var t = HephaestusForge.ForgeObject.CreateFromJson<SomeTest>(te);
     }
 
     // Update is called once per frame

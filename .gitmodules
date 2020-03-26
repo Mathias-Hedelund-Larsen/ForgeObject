@@ -1,0 +1,3 @@
+[submodule "GitSubmodule/EditorObjectExtension"]
+	path = GitSubmodule/EditorObjectExtension
+	url = https://github.com/Mathias-Hedelund-Larsen/EditorObjectExtension.git

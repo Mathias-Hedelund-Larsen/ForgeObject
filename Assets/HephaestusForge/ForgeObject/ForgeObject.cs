@@ -57,7 +57,6 @@ namespace HephaestusForge
             insideEncapsulation = match.Groups[1].Value;
         }
 
-
         public static T CreateUninitialized<T>() where T : ForgeObject
         {
             var instance = (T)FormatterServices.GetUninitializedObject(typeof(T));

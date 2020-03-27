@@ -8,8 +8,7 @@ using UnityEngine;
 
 namespace HephaestusForge
 {
-    [Serializable]
-    public abstract class ForgeObject
+    public class ForgeObject
     {
 
 #if UNITY_EDITOR 
@@ -25,6 +24,12 @@ namespace HephaestusForge
 
         [NonSerialized]
         private Dictionary<FieldInfo, FieldInfo> _childParentMap;
+
+        [SerializeField]
+        private string _polymorphismType;
+
+        [SerializeField]
+        private string _polymorphismJsonData;
 
         private static string InsertObjectID(string json)
         {
@@ -112,6 +117,11 @@ namespace HephaestusForge
             var instance = new T();
             instance.Init();
             return instance;
+        }
+
+        public static T Polymorph<T>(T original) where T: ForgeObject
+        {
+            return (T)CreateFromJson(original._polymorphismJsonData, Type.GetType(original._polymorphismType));
         }
 
         /// <summary>

@@ -21,7 +21,7 @@ namespace HephaestusForge
             Selection.selectionChanged -= OnEditorLostFocus;
             Selection.selectionChanged += OnEditorLostFocus;
 
-            if(_derivedtypes == null)
+            if (_derivedtypes == null)
             {
                 List<string> derivedtypes = new List<string>();
 
@@ -34,7 +34,7 @@ namespace HephaestusForge
                     derivedtypes = ForgeObject.EditorFindDerivedTypeNames(fieldInfo.FieldType).ToList();
                 }
 
-                if(derivedtypes.Count > 0)
+                if (derivedtypes.Count > 0 && fieldInfo.FieldType != typeof(ForgeObject))
                 {
                     derivedtypes.Insert(0, DONT_POLYMORPH);
                 }
@@ -78,6 +78,34 @@ namespace HephaestusForge
 
                 _initialized.Add(property.propertyPath, new Tuple<ForgeObject, FieldInfo[]>(forgeObject, forgeObject.GetForgeObjectJsonFields()));
             }
+            else if (_derivedtypes.Length > 0 && fieldInfo.FieldType == typeof(ForgeObject))
+            {
+                var forgeObjectType = Type.GetType(_derivedtypes[0]);
+
+                ForgeObject forgeObject = null;
+
+                var polymorphJsonData = property.FindPropertyRelative("_polymorphismJsonData");
+
+                if (!string.IsNullOrEmpty(polymorphJsonData.stringValue))
+                {
+                    var original = fieldInfo.GetValue(property.serializedObject.targetObject);
+
+                    forgeObject = ForgeObject.Polymorph((ForgeObject)original, forgeObjectType);
+                }
+                else
+                {
+                    try
+                    {
+                        forgeObject = ForgeObject.Create(forgeObjectType);
+                    }
+                    catch (MissingMethodException)
+                    {
+                        forgeObject = ForgeObject.CreateUninitialized(forgeObjectType);
+                    }
+                }
+
+                _initialized.Add(property.propertyPath, new Tuple<ForgeObject, FieldInfo[]>(forgeObject, forgeObject.GetForgeObjectJsonFields()));
+            }
             else
             {
                 _initialized.Add(property.propertyPath, null);
@@ -95,11 +123,32 @@ namespace HephaestusForge
                 Init(property);
             }
 
-            if (property.isExpanded && _derivedtypes.Length > 0)
+            if (property.isExpanded)
             {
                 float height = EditorGUIUtility.singleLineHeight * 2;
 
-                if (fieldInfo.FieldType != typeof(ForgeObject))
+                if (_derivedtypes.Length > 0)
+                {
+                    if (!property.FindPropertyRelative("_polymorphEnabled").boolValue)
+                    {
+                        var iterator = property.Copy();
+
+                        while (iterator.NextVisible(true))
+                        {
+                            height += EditorGUIUtility.singleLineHeight;
+                        }
+                    }
+                    else if (_initialized[property.propertyPath] != null)
+                    {
+                        for (int i = 0; i < _initialized[property.propertyPath].Item2.Length; i++)
+                        {
+                            height += EditorGUIUtility.singleLineHeight;
+                        }
+                    }
+
+                    return height;
+                }
+                else
                 {
                     var iterator = property.Copy();
 
@@ -107,16 +156,9 @@ namespace HephaestusForge
                     {
                         height += EditorGUIUtility.singleLineHeight;
                     }
-                }
-                else if (_initialized[property.propertyPath] != null)
-                {
-                    for (int i = 0; i < _initialized[property.propertyPath].Item2.Length; i++)
-                    {
-                        height += EditorGUIUtility.singleLineHeight;
-                    }
-                }               
 
-                return height;
+                    return height - EditorGUIUtility.singleLineHeight;
+                }
             }
             else
             {
@@ -133,61 +175,109 @@ namespace HephaestusForge
 
             position.height = EditorGUIUtility.singleLineHeight;
 
-            EditorGUI.PropertyField(position, property, label, false);
+            if (_derivedtypes.Contains(DONT_POLYMORPH))
+            {
+                EditorGUI.PropertyField(position, property, label, false);
+            }
+            else
+            {
+                property.isExpanded = EditorGUI.Foldout(position, property.isExpanded, label);
+            }
 
-            if (property.isExpanded && _derivedtypes.Length > 0)
+            if (property.isExpanded)
             {
                 position.y += EditorGUIUtility.singleLineHeight;
                 EditorGUI.indentLevel++;
 
-                var type = property.FindPropertyRelative("_polymorphismType");
-
-                int selected = Array.IndexOf(_derivedtypes, type.stringValue);
-
-                if(selected < 0)
+                if (_derivedtypes.Length > 0)
                 {
-                    selected = 0;
-                }
+                    var type = property.FindPropertyRelative("_polymorphismType");
 
-                EditorGUI.BeginChangeCheck();
+                    int selected = Array.IndexOf(_derivedtypes, type.stringValue);
 
-                GUI.enabled = !EditorApplication.isPlayingOrWillChangePlaymode;
-                selected = EditorGUI.Popup(position, "Polymorph", selected, _displayDerivedType);
-                GUI.enabled = true;
-                position.y += EditorGUIUtility.singleLineHeight;
-                type.stringValue = _derivedtypes[selected];
-
-                if(EditorGUI.EndChangeCheck() && selected > 0)
-                {
-                    property.FindPropertyRelative("_polymorphEnabled").boolValue = true;
-                    property.FindPropertyRelative("_polymorphismJsonData").stringValue = string.Empty;
-                    property.FindPropertyRelative("_pairs").arraySize = 0;
-
-                    property.serializedObject.ApplyModifiedProperties();
-                    var forgeObjectType = Type.GetType(type.stringValue);
-                    ForgeObject forgeObject = null;
-
-                    try
+                    if (selected < 0)
                     {
-                        forgeObject = ForgeObject.Create(forgeObjectType);
-                    }
-                    catch (MissingMethodException)
-                    {
-                        forgeObject = ForgeObject.CreateUninitialized(forgeObjectType);
+                        selected = 0;
                     }
 
-                    _initialized[property.propertyPath] = new Tuple<ForgeObject, FieldInfo[]>(forgeObject, forgeObject.GetForgeObjectJsonFields());
-
-                    Draw(position, property);                    
-                }
-                else if(selected > 0)
-                {
-                    Draw(position, property);
-                }
-                else
-                {
-                    if(fieldInfo.FieldType != typeof(ForgeObject))
+                    if (!EditorApplication.isPlayingOrWillChangePlaymode)
                     {
+                        EditorGUI.BeginChangeCheck();
+
+                        selected = EditorGUI.Popup(position, "Polymorph", selected, _displayDerivedType);
+
+                        position.y += EditorGUIUtility.singleLineHeight;
+                        type.stringValue = _derivedtypes[selected];
+
+                        if (EditorGUI.EndChangeCheck() && _derivedtypes[selected] != DONT_POLYMORPH)
+                        {
+                            property.FindPropertyRelative("_polymorphEnabled").boolValue = true;
+                            property.FindPropertyRelative("_polymorphismJsonData").stringValue = string.Empty;
+                            property.FindPropertyRelative("_pairs").arraySize = 0;
+
+                            property.serializedObject.ApplyModifiedProperties();
+                            var forgeObjectType = Type.GetType(type.stringValue);
+                            ForgeObject forgeObject = null;
+
+                            try
+                            {
+                                forgeObject = ForgeObject.Create(forgeObjectType);
+                            }
+                            catch (MissingMethodException)
+                            {
+                                forgeObject = ForgeObject.CreateUninitialized(forgeObjectType);
+                            }
+
+                            _initialized[property.propertyPath] = new Tuple<ForgeObject, FieldInfo[]>(forgeObject, forgeObject.GetForgeObjectJsonFields());
+
+                            Draw(position, property);
+                        }
+                        else if (_derivedtypes[selected] != DONT_POLYMORPH)
+                        {
+                            Draw(position, property);
+                        }
+                        else
+                        {
+                            if (fieldInfo.FieldType != typeof(ForgeObject))
+                            {
+                                var iterator = property.Copy();
+
+                                while (iterator.NextVisible(true))
+                                {
+                                    EditorGUI.PropertyField(position, iterator);
+                                    position.y += EditorGUIUtility.singleLineHeight;
+                                }
+                            }
+
+                            property.FindPropertyRelative("_polymorphEnabled").boolValue = false;
+                            property.FindPropertyRelative("_polymorphismJsonData").stringValue = string.Empty;
+                            property.FindPropertyRelative("_pairs").arraySize = 0;
+
+                            _initialized[property.propertyPath] = null;
+                            property.serializedObject.ApplyModifiedProperties();
+                        }
+                    }
+                    else
+                    {
+                        GUI.enabled = false;
+                        selected = EditorGUI.Popup(position, "Polymorph", selected, _displayDerivedType);
+
+                        position.y += EditorGUIUtility.singleLineHeight;
+                        type.stringValue = _derivedtypes[selected];
+
+                        if (_initialized[property.propertyPath] != null)
+                        {
+                            for (int i = 0; i < _initialized[property.propertyPath].Item2.Length; i++)
+                            {
+                                if (_initialized[property.propertyPath].Item2[i].DeclaringType != fieldInfo.FieldType)
+                                {
+                                    DrawSingleElementInPlayMode(_initialized[property.propertyPath].Item1, _initialized[property.propertyPath].Item2[i], ref position);
+                                }
+                            }
+                        }
+
+                        GUI.enabled = true;
+
                         var iterator = property.Copy();
 
                         while (iterator.NextVisible(true))
@@ -196,13 +286,16 @@ namespace HephaestusForge
                             position.y += EditorGUIUtility.singleLineHeight;
                         }
                     }
+                }
+                else 
+                {
+                    var iterator = property.Copy();
 
-                    property.FindPropertyRelative("_polymorphEnabled").boolValue = false;
-                    property.FindPropertyRelative("_polymorphismJsonData").stringValue = string.Empty;
-                    property.FindPropertyRelative("_pairs").arraySize = 0;
-
-                    _initialized[property.propertyPath] = null;
-                    property.serializedObject.ApplyModifiedProperties();                    
+                    while (iterator.NextVisible(true))
+                    {
+                        EditorGUI.PropertyField(position, iterator);
+                        position.y += EditorGUIUtility.singleLineHeight;
+                    }
                 }
             }
         }
@@ -325,6 +418,24 @@ namespace HephaestusForge
 
                 property.FindPropertyRelative("_polymorphismJsonData").stringValue = forgeObject.ToJsonString();
                 property.serializedObject.ApplyModifiedProperties();
+            }
+
+            position.y += EditorGUIUtility.singleLineHeight;
+        }
+
+        private void DrawSingleElementInPlayMode(ForgeObject forgeObject, FieldInfo fieldInfo, ref Rect position)
+        {
+            if (fieldInfo.FieldType == typeof(int))
+            {
+                EditorGUI.IntField(position, new GUIContent(fieldInfo.Name), (int)fieldInfo.GetValue(forgeObject));                
+            }
+            else if (fieldInfo.FieldType == typeof(string))
+            {
+                EditorGUI.TextField(position, new GUIContent(fieldInfo.Name), (string)fieldInfo.GetValue(forgeObject));
+            }
+            else if (fieldInfo.FieldType == typeof(UnityEngine.Object) || fieldInfo.FieldType.IsSubclassOf(typeof(UnityEngine.Object)))
+            {
+                EditorGUI.ObjectField(position, new GUIContent(fieldInfo.Name), (UnityEngine.Object)fieldInfo.GetValue(forgeObject), fieldInfo.FieldType, true);                
             }
 
             position.y += EditorGUIUtility.singleLineHeight;

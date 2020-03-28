@@ -10,10 +10,13 @@ namespace HephaestusForge
     public class Demo : MonoBehaviour
     {
         [SerializeField]
+        private ForgeObject _object;
+
+        [SerializeField]
         private Child forgeObject;
 
         void Start()
-        {
+        {            
             //s = _d.ToJsonString();
             forgeObject = ForgeObject.Polymorph(forgeObject);            
         }
@@ -27,10 +30,7 @@ namespace HephaestusForge
 
     [Serializable]
     public class Child : ForgeObject
-    {
-        [SerializeField]
-        private string _name;
-
+    {        
         [SerializeField]
         protected int _time;
 
@@ -38,12 +38,13 @@ namespace HephaestusForge
         protected int _timer;
 
         [SerializeField]
-        protected Transform _someTransform;        
+        protected Transform _someTransform;
 
         public virtual void Transform()
         {
             if(_timer <= 0)
             {
+                Debug.Log("Child");
                 _timer = _time;
             }
             else
@@ -62,21 +63,22 @@ namespace HephaestusForge
     [Serializable]
     public class GrandChild : Child
     {
+        [SerializeField]
+        private string _name;
+
+        protected override void Init()
+        {
+            _timer = _time;
+        }
+
         public override void Transform()
         {
+            _timer -= 2;
+
             if (_timer <= 0)
             {
                 _timer = _time;
-            }
-            else
-            {
-                _timer -= 2;
-
-                if (_timer <= 0)
-                {
-                    _timer = _time;
-                    _someTransform.Translate(Vector3.one * 3);
-                }
+                _someTransform.Translate(Vector3.one * 3);
             }
         }
     }

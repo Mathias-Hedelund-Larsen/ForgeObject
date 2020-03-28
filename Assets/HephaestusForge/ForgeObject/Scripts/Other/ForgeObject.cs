@@ -9,7 +9,7 @@ using UnityEngine;
 namespace HephaestusForge
 {
     [Serializable]
-    public class ForgeObject 
+    public abstract class ForgeObject 
     {
 
 #if UNITY_EDITOR         
@@ -38,7 +38,7 @@ namespace HephaestusForge
         private string _polymorphismJsonData;
 
         [SerializeField, HideInInspector]
-        private Internal.UnityEngineStringObjectPair[] _pairs;
+        private Internal.UnityObjectStorage[] _pairs;
 
 #pragma warning restore 0649
 
@@ -75,7 +75,7 @@ namespace HephaestusForge
             }
         }
 #endif
-        private static string InsertTargetObjectInstanceID(string json, Internal.UnityEngineStringObjectPair[] pairs)
+        private static string InsertTargetObjectInstanceID(string json, Internal.UnityObjectStorage[] pairs)
         {
             string[] jsondata = json.Split('\n');
 
@@ -130,7 +130,7 @@ namespace HephaestusForge
         }
 
         public static ForgeObject CreateFromJson(string json, Type forgeObjectChildType)
-        {
+        {           
             var instance = (ForgeObject)JsonUtility.FromJson(json, forgeObjectChildType);
             instance.Init();
             return instance;
@@ -189,14 +189,13 @@ namespace HephaestusForge
                     clone._polymorphEnabled = original._polymorphEnabled;
                     clone._polymorphismType = original._polymorphismType;
                     clone._polymorphismJsonData = original._polymorphismJsonData;
-                    clone._pairs = original._pairs;
                 }
 #endif
-                clone.Init();
                 return clone;
             }
             else
             {
+                original.Init();
                 return original;
             }
         }
@@ -214,14 +213,13 @@ namespace HephaestusForge
                     clone._polymorphEnabled = original._polymorphEnabled;
                     clone._polymorphismType = original._polymorphismType;
                     clone._polymorphismJsonData = original._polymorphismJsonData;
-                    clone._pairs = original._pairs;
                 }
 #endif
-                clone.Init();
                 return clone;
             }
             else
             {
+                original.Init();
                 return original;
             }
         }

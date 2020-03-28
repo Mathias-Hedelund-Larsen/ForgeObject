@@ -8,10 +8,11 @@ using UnityEngine;
 
 namespace HephaestusForge
 {
-    public class ForgeObject
+    [Serializable]
+    public class ForgeObject 
     {
 
-#if UNITY_EDITOR 
+#if UNITY_EDITOR         
         [NonSerialized]
         private string _editorJsonData;
 #endif
@@ -25,13 +26,56 @@ namespace HephaestusForge
         [NonSerialized]
         private Dictionary<FieldInfo, FieldInfo> _childParentMap;
 
-        [SerializeField]
+#pragma warning disable 0649
+
+        [SerializeField, HideInInspector]
+        private bool _polymorphEnabled;
+
+        [SerializeField, HideInInspector]
         private string _polymorphismType;
 
-        [SerializeField]
+        [SerializeField, HideInInspector]
         private string _polymorphismJsonData;
 
-        private static string InsertObjectID(string json)
+        [SerializeField, HideInInspector]
+        private Internal.UnityEngineStringObjectPair[] _pairs;
+
+#pragma warning restore 0649
+
+#if UNITY_EDITOR
+        public static IEnumerable<string> EditorFindDerivedTypeNames(Type parent)
+        {
+            var assemblyDefinitions = UnityEditor.AssetDatabase.FindAssets("t:asmdef");
+            List<UnityEngine.Object> assemblyObjects = new List<UnityEngine.Object>();
+
+            for (int i = 0; i < assemblyDefinitions.Length; i++)
+            {
+                assemblyObjects.Add(UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(UnityEditor.AssetDatabase.GUIDToAssetPath(assemblyDefinitions[i])));
+            }
+
+            for (int i = assemblyObjects.Count - 1; i >= 0; i--)
+            {
+                if (assemblyObjects[i].name.Contains("Editor") || assemblyObjects[i].name.Contains("Tests") || assemblyObjects[i].name.Contains("Analytics"))
+                {
+                    assemblyObjects.RemoveAt(i);
+                }
+            }
+
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies().Where(a => a.FullName.Contains("Assembly-CSharp") && !a.FullName.Contains("Editor")
+                || assemblyObjects.Any(def => def.name.Contains(a.GetName().Name))).ToArray();
+
+            for (int i = 0; i < assemblies.Length; i++)
+            {
+                var assemblyDerivedTypes = assemblies[i].GetTypes().Where(t => t.IsSubclassOf(parent) && !t.IsAbstract).ToArray();
+
+                for (int t = 0; t < assemblyDerivedTypes.Length; t++)
+                {
+                    yield return $"{assemblyDerivedTypes[t].AssemblyQualifiedName}";
+                }
+            }
+        }
+#endif
+        private static string InsertTargetObjectInstanceID(string json, Internal.UnityEngineStringObjectPair[] pairs)
         {
             string[] jsondata = json.Split('\n');
 
@@ -41,14 +85,16 @@ namespace HephaestusForge
                 {
                     GetSubStringBetweenChars(jsondata[i], '{', '}', out string full, out string inside);
 
-                    var split = inside.Split(':');
+                    if (inside.Contains("_sceneGuid:") && inside.Contains("_objectID:"))
+                    {
+                        var pair = Array.Find(pairs, p => p.Key == full);
 
-                    Type editorObjectExtensions = Type.GetType("HephaestusForge.UnityEditorObjectExtensions, Assembly-CSharp-Editor");
-                    MethodInfo getObjectByInstanceIDMethod = editorObjectExtensions.GetMethod("GetObjectByInstanceID", BindingFlags.Public | BindingFlags.Static);
-
-                    var obj = (UnityEngine.Object)getObjectByInstanceIDMethod.Invoke(null, new object[2] { int.Parse(split[1]), split[0] });
-
-                    jsondata[i] = $"\"instanceID\":{obj.GetInstanceID()}";
+                        if (pair != null && pair.Value)
+                        {
+                            int instanceID = pair.Value.GetInstanceID();
+                            jsondata[i] = $"\"instanceID\": {instanceID}";
+                        }
+                    }
                 }
             }
 
@@ -78,10 +124,6 @@ namespace HephaestusForge
 
         public static T CreateFromJson<T>(string json) where T : ForgeObject
         {
-#if UNITY_EDITOR
-            json = InsertObjectID(json);
-#endif
-
             var instance = JsonUtility.FromJson<T>(json);
             instance.Init();
             return instance;
@@ -89,10 +131,6 @@ namespace HephaestusForge
 
         public static ForgeObject CreateFromJson(string json, Type forgeObjectChildType)
         {
-#if UNITY_EDITOR
-            json = InsertObjectID(json);
-#endif
-
             var instance = (ForgeObject)JsonUtility.FromJson(json, forgeObjectChildType);
             instance.Init();
             return instance;
@@ -119,11 +157,6 @@ namespace HephaestusForge
             return instance;
         }
 
-        public static T Polymorph<T>(T original) where T: ForgeObject
-        {
-            return (T)CreateFromJson(original._polymorphismJsonData, Type.GetType(original._polymorphismType));
-        }
-
         /// <summary>
         /// 
         /// </summary>
@@ -142,13 +175,66 @@ namespace HephaestusForge
             return instance;
         }
 
-        private void GetUnityEngineObjectIdenfication(int i, List<string> json, object target, MethodInfo getSceneGuidAndObjectIDMethod)
+        public static T Polymorph<T>(T original) where T : ForgeObject
+        {
+            if (original._polymorphEnabled)
+            {
+                original._polymorphismJsonData = InsertTargetObjectInstanceID(original._polymorphismJsonData, original._pairs);
+
+                var clone = (T)CreateFromJson(original._polymorphismJsonData, Type.GetType(original._polymorphismType));
+
+#if UNITY_EDITOR
+                if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode)
+                {
+                    clone._polymorphEnabled = original._polymorphEnabled;
+                    clone._polymorphismType = original._polymorphismType;
+                    clone._polymorphismJsonData = original._polymorphismJsonData;
+                    clone._pairs = original._pairs;
+                }
+#endif
+                clone.Init();
+                return clone;
+            }
+            else
+            {
+                return original;
+            }
+        }
+
+        public static ForgeObject Polymorph(ForgeObject original, Type forgeObjectChildType)
+        {
+            if (original._polymorphEnabled)
+            {
+                original._polymorphismJsonData = InsertTargetObjectInstanceID(original._polymorphismJsonData, original._pairs);
+                var clone = CreateFromJson(original._polymorphismJsonData, forgeObjectChildType);
+
+#if UNITY_EDITOR
+                if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode)
+                {
+                    clone._polymorphEnabled = original._polymorphEnabled;
+                    clone._polymorphismType = original._polymorphismType;
+                    clone._polymorphismJsonData = original._polymorphismJsonData;
+                    clone._pairs = original._pairs;
+                }
+#endif
+                clone.Init();
+                return clone;
+            }
+            else
+            {
+                return original;
+            }
+        }
+
+#if UNITY_EDITOR
+        private void EditorGetUnityEngineObjectIdenfication(int i, List<string> json, UnityEngine.Object target, MethodInfo getSceneGuidAndObjectIDMethod)
         {
             if (target != null)
             {
-                int objectID = 0;
+                List<int> removeAt = new List<int>();
+                long objectID = 0;
                 string sceneGuid = "";
-                var args = new object[3] { target, sceneGuid, objectID };
+                object[] args = new object[3] { target, sceneGuid, objectID };
 
                 getSceneGuidAndObjectIDMethod.Invoke(null, args);
 
@@ -160,13 +246,19 @@ namespace HephaestusForge
                     }
                     else
                     {
-                        json.RemoveAt(t);
+                        removeAt.Add(t);
                     }
                 }
 
-                json[i + 1] = $"{{{args[1]}:{args[2]}}}";
+                for (int t = removeAt.Count - 1; t >= 0; t--)
+                {
+                    json.RemoveAt(removeAt[t]);
+                }
+
+                json[i + 1] = $"{{_sceneGuid:{args[1]}, _objectID:{args[2]}}}";
             }
         }
+#endif
 
         private IEnumerable<FieldInfo> GetNestedRoot(FieldInfo field)
         {
@@ -182,15 +274,6 @@ namespace HephaestusForge
         protected virtual void Init() { }
 
         /// <summary>
-        /// Get the data of this class as json string
-        /// </summary>
-        /// <returns>A json representation of the class.</returns>
-        public override string ToString()
-        {
-            return ToJsonString();
-        }
-
-        /// <summary>
         /// Get the data of this class as json string, in the editor UnityEngine.Object and derived classes will be shown with a sceneGuid and an objectID
         /// </summary>
         /// <returns>A json representation of the class.</returns>
@@ -199,12 +282,11 @@ namespace HephaestusForge
 #if UNITY_EDITOR
             _jsonFields = GetForgeObjectJsonFields();            
 
-            if (_editorJsonData == null && _jsonFields.Any(f => f.FieldType.IsSubclassOf(typeof(UnityEngine.Object)) || f.FieldType == typeof(UnityEngine.Object)))
+            if (_jsonFields.Any(f => f.FieldType.IsSubclassOf(typeof(UnityEngine.Object)) || f.FieldType == typeof(UnityEngine.Object)))
             {
-                Type editorObjectExtensions = Type.GetType("HephaestusForge.UnityEditorObjectExtensions, Assembly-CSharp-Editor");
-                MethodInfo getSceneGuidAndObjectIDMethod = editorObjectExtensions.GetMethod("GetSceneGuidAndObjectID", BindingFlags.Public | BindingFlags.Static);
-                
                 var json = JsonUtility.ToJson(this, true).Split('\n').ToList();
+                Type unityEditorObjectExtensions = Type.GetType("HephaestusForge.UnityEditorObjectExtensions, Assembly-CSharp-Editor");
+                MethodInfo getSceneGuidAndObjectIDMethod = unityEditorObjectExtensions.GetMethod("GetSceneGuidAndObjectID", BindingFlags.Public | BindingFlags.Static);
 
                 for (int i = json.Count - 1; i >= 0 ; i--)
                 {
@@ -225,13 +307,16 @@ namespace HephaestusForge
                                     target = nestedRoot[t].GetValue(target);
                                 }
 
-                                GetUnityEngineObjectIdenfication(i, json, target, getSceneGuidAndObjectIDMethod);
+                                if (target is UnityEngine.Object)
+                                {                                    
+                                    EditorGetUnityEngineObjectIdenfication(i, json, (UnityEngine.Object)target, getSceneGuidAndObjectIDMethod);
+                                }
                             }
                             else
                             {
                                 UnityEngine.Object target = (UnityEngine.Object)field.GetValue(this);
 
-                                GetUnityEngineObjectIdenfication(i, json, target, getSceneGuidAndObjectIDMethod);                                
+                                EditorGetUnityEngineObjectIdenfication(i, json, target, getSceneGuidAndObjectIDMethod);                                
                             }
                         }
                     }
@@ -248,8 +333,7 @@ namespace HephaestusForge
 #else
             return JsonUtility.ToJson(this, true);
 #endif
-        }
-
+        }        
 
         /// <summary>
         /// Get the names of fields that Json utility can access.
@@ -274,7 +358,7 @@ namespace HephaestusForge
                     {
                         fieldNames.Add(subClassFields + fieldName);
 
-                        if (json[t].Split(':')[1].Contains("{"))
+                        if (json[t].Split(':')[1].Contains("{") && !json[t].Split(':')[1].Contains("\""))
                         {
                             startedSubClasses++;
                             subClassFields = $"{fieldName}.";

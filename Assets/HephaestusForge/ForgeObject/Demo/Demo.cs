@@ -16,7 +16,30 @@ namespace HephaestusForge
         private Child forgeObject;
 
         void Start()
-        {            
+        {
+            var some = new Some<int>(new List<int>() { 1,2,3});
+
+            var json = JsonUtility.ToJson(some);
+
+            try
+            {
+                var t = JsonUtility.FromJson(json, typeof(Some<int>));
+                //var t = JsonUtility.FromJson<Some<int>>(json);
+            }
+            catch (Exception)
+            {
+                Debug.Log("Cant parse with generic");
+
+                try
+                {
+                   
+                }
+                catch (Exception)
+                {
+                    Debug.Log("Cant parse");
+                }
+            }
+
             //s = _d.ToJsonString();
             forgeObject = ForgeObject.Polymorph(forgeObject);            
         }
@@ -80,6 +103,18 @@ namespace HephaestusForge
                 _timer = _time;
                 _someTransform.Translate(Vector3.one * 3);
             }
+        }
+    }
+
+    [Serializable]
+    public class Some<T>
+    {
+        [SerializeField]
+        private List<T> _list;
+
+        public Some(List<T> list)
+        {
+            _list = list;
         }
     }
 }

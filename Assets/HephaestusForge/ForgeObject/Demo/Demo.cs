@@ -16,32 +16,9 @@ namespace HephaestusForge
         private Child forgeObject;
 
         void Start()
-        {
-            var some = new Some<int>(new List<int>() { 1,2,3});
-
-            var json = JsonUtility.ToJson(some);
-
-            try
-            {
-                var t = JsonUtility.FromJson(json, typeof(Some<int>));
-                //var t = JsonUtility.FromJson<Some<int>>(json);
-            }
-            catch (Exception)
-            {
-                Debug.Log("Cant parse with generic");
-
-                try
-                {
-                   
-                }
-                catch (Exception)
-                {
-                    Debug.Log("Cant parse");
-                }
-            }
-
+        {            
             //s = _d.ToJsonString();
-            forgeObject = ForgeObject.Polymorph(forgeObject);            
+            forgeObject = ForgeObject.Instantiate(forgeObject);
         }
 
         // Update is called once per frame
@@ -63,6 +40,11 @@ namespace HephaestusForge
         [SerializeField]
         protected Transform _someTransform;
 
+        protected override void Init(IReadSerializedData reader)
+        {
+            _timer = _time;
+        }
+
         public virtual void Transform()
         {
             if(_timer <= 0)
@@ -81,6 +63,11 @@ namespace HephaestusForge
                 }
             }
         }
+
+        protected override void Serialize(IWriteSerializedData writer)
+        {
+            throw new NotImplementedException();
+        }
     }
 
     [Serializable]
@@ -89,9 +76,10 @@ namespace HephaestusForge
         [SerializeField]
         private string _name;
 
-        protected override void Init()
+        protected override void Init(IReadSerializedData reader)
         {
             _timer = _time;
+            base.Init(reader);
         }
 
         public override void Transform()
@@ -103,18 +91,6 @@ namespace HephaestusForge
                 _timer = _time;
                 _someTransform.Translate(Vector3.one * 3);
             }
-        }
-    }
-
-    [Serializable]
-    public class Some<T>
-    {
-        [SerializeField]
-        private List<T> _list;
-
-        public Some(List<T> list)
-        {
-            _list = list;
         }
     }
 }

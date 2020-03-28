@@ -11,6 +11,35 @@ namespace HephaestusForge
     [Serializable]
     public abstract class ForgeObject 
     {
+        [Serializable]
+        public abstract class LightWeight
+        {
+            public static T Instantiate<T>(IReadSerializedData reader) where T : LightWeight, new()
+            {
+                T instance = new T();
+                instance.Init(reader);
+                return instance;
+            }
+
+            protected abstract void Init(IReadSerializedData reader);
+        }
+
+        [Serializable]
+        public sealed class Reference
+        {
+            [SerializeField]
+            private string _guid;
+
+            public void LazyReferenceForgeObject<T>(Action<T> action) where T : ForgeObject, new()
+            {
+
+            }
+
+            //public T GetReferenceOrInstantiate<T>()
+            //{
+
+            //}
+        }
 
 #if UNITY_EDITOR         
         [NonSerialized]
@@ -38,7 +67,7 @@ namespace HephaestusForge
         private string _polymorphismJsonData;
 
         [SerializeField, HideInInspector]
-        private Internal.UnityObjectStorage[] _pairs;
+        private SerializedData _polymorphismData;
 
 #pragma warning restore 0649
 
@@ -75,188 +104,20 @@ namespace HephaestusForge
             }
         }
 #endif
-        private static string InsertTargetObjectInstanceID(string json, Internal.UnityObjectStorage[] pairs)
+
+        public static T Instantiate<T>(T original) where T : ForgeObject, new()
         {
-            string[] jsondata = json.Split('\n');
-
-            for (int i = 0; i < jsondata.Length; i++)
-            {
-                if (jsondata[i].Contains("{") && jsondata[i].Contains("}"))
-                {
-                    GetSubStringBetweenChars(jsondata[i], '{', '}', out string full, out string inside);
-
-                    if (inside.Contains("_sceneGuid:") && inside.Contains("_objectID:"))
-                    {
-                        var pair = Array.Find(pairs, p => p.Key == full);
-
-                        if (pair != null && pair.Value)
-                        {
-                            int instanceID = pair.Value.GetInstanceID();
-                            jsondata[i] = $"\"instanceID\": {instanceID}";
-                        }
-                    }
-                }
-            }
-
-            return string.Join("\n", jsondata);
-        }
-
-        private static void GetSubStringBetweenChars(string origin, char start, char end, out string fullMatch, out string insideEncapsulation)
-        {
-            var match = Regex.Match(origin, string.Format(@"\{0}(.*?)\{1}", start, end));
-            fullMatch = match.Groups[0].Value;
-            insideEncapsulation = match.Groups[1].Value;
-        }
-
-        public static T CreateUninitialized<T>() where T : ForgeObject
-        {
-            var instance = (T)FormatterServices.GetUninitializedObject(typeof(T));
-            instance.Init();
+            T instance = new T();
+            instance.Init(original._polymorphismData);
             return instance;
         }
 
-        public static ForgeObject CreateUninitialized(Type forgeObjectChildType)
+        public static T Instantiate<T>(IReadSerializedData reader) where T : ForgeObject, new()
         {
-            var instance = (ForgeObject)FormatterServices.GetUninitializedObject(forgeObjectChildType);
-            instance.Init();
+            T instance = new T();
+            instance.Init(reader);
             return instance;
         }
-
-        public static T CreateFromJson<T>(string json) where T : ForgeObject
-        {
-            var instance = JsonUtility.FromJson<T>(json);
-            instance.Init();
-            return instance;
-        }
-
-        public static ForgeObject CreateFromJson(string json, Type forgeObjectChildType)
-        {           
-            var instance = (ForgeObject)JsonUtility.FromJson(json, forgeObjectChildType);
-            instance.Init();
-            return instance;
-        }
-
-        public static T Clone<T>(T original) where T : ForgeObject
-        {
-            var clone = (T)original.MemberwiseClone();
-            clone.Init();
-            return clone;
-        }
-
-        public static ForgeObject Clone(ForgeObject forgeObject)
-        {
-            var clone = (ForgeObject)forgeObject.MemberwiseClone();
-            clone.Init();
-            return clone;
-        }
-
-        public static T Create<T>() where T : ForgeObject, new()
-        {
-            var instance = new T();
-            instance.Init();
-            return instance;
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="forgeObjectChildType"></param>
-        /// <returns>An instance of the child type of the </returns>
-        public static ForgeObject Create(Type forgeObjectChildType)
-        {
-#if UNITY_EDITOR
-            if (forgeObjectChildType.GetConstructor(Type.EmptyTypes) == null)
-            {
-                throw new MissingMethodException("Cant find a parameterless constructor, please make sure that the ForgeObject child class has a parameterless constructor.");
-            }
-#endif
-            var instance = (ForgeObject)Activator.CreateInstance(forgeObjectChildType);
-            instance.Init();
-            return instance;
-        }
-
-        public static T Polymorph<T>(T original) where T : ForgeObject
-        {
-            if (original._polymorphEnabled)
-            {
-                original._polymorphismJsonData = InsertTargetObjectInstanceID(original._polymorphismJsonData, original._pairs);
-
-                var clone = (T)CreateFromJson(original._polymorphismJsonData, Type.GetType(original._polymorphismType));
-
-#if UNITY_EDITOR
-                if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode)
-                {
-                    clone._polymorphEnabled = original._polymorphEnabled;
-                    clone._polymorphismType = original._polymorphismType;
-                    clone._polymorphismJsonData = original._polymorphismJsonData;
-                }
-#endif
-                return clone;
-            }
-            else
-            {
-                original.Init();
-                return original;
-            }
-        }
-
-        public static ForgeObject Polymorph(ForgeObject original, Type forgeObjectChildType)
-        {
-            if (original._polymorphEnabled)
-            {
-                original._polymorphismJsonData = InsertTargetObjectInstanceID(original._polymorphismJsonData, original._pairs);
-                var clone = CreateFromJson(original._polymorphismJsonData, forgeObjectChildType);
-
-#if UNITY_EDITOR
-                if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode)
-                {
-                    clone._polymorphEnabled = original._polymorphEnabled;
-                    clone._polymorphismType = original._polymorphismType;
-                    clone._polymorphismJsonData = original._polymorphismJsonData;
-                }
-#endif
-                return clone;
-            }
-            else
-            {
-                original.Init();
-                return original;
-            }
-        }
-
-#if UNITY_EDITOR
-        private void EditorGetUnityEngineObjectIdenfication(int i, List<string> json, UnityEngine.Object target, MethodInfo getSceneGuidAndObjectIDMethod)
-        {
-            if (target != null)
-            {
-                List<int> removeAt = new List<int>();
-                long objectID = 0;
-                string sceneGuid = "";
-                object[] args = new object[3] { target, sceneGuid, objectID };
-
-                getSceneGuidAndObjectIDMethod.Invoke(null, args);
-
-                for (int t = i + 2; t < json.Count; t++)
-                {
-                    if (json[t].Contains("}"))
-                    {
-                        break;
-                    }
-                    else
-                    {
-                        removeAt.Add(t);
-                    }
-                }
-
-                for (int t = removeAt.Count - 1; t >= 0; t--)
-                {
-                    json.RemoveAt(removeAt[t]);
-                }
-
-                json[i + 1] = $"{{_sceneGuid:{args[1]}, _objectID:{args[2]}}}";
-            }
-        }
-#endif
 
         private IEnumerable<FieldInfo> GetNestedRoot(FieldInfo field)
         {
@@ -269,7 +130,9 @@ namespace HephaestusForge
             yield return field;
         }
 
-        protected virtual void Init() { }
+        protected abstract void Init(IReadSerializedData reader);
+
+        protected abstract void Serialize(IWriteSerializedData writer);
 
         /// <summary>
         /// Get the data of this class as json string, in the editor UnityEngine.Object and derived classes will be shown with a sceneGuid and an objectID
@@ -307,14 +170,14 @@ namespace HephaestusForge
 
                                 if (target is UnityEngine.Object)
                                 {                                    
-                                    EditorGetUnityEngineObjectIdenfication(i, json, (UnityEngine.Object)target, getSceneGuidAndObjectIDMethod);
+                                    //EditorGetUnityEngineObjectIdenfication(i, json, (UnityEngine.Object)target, getSceneGuidAndObjectIDMethod);
                                 }
                             }
                             else
                             {
                                 UnityEngine.Object target = (UnityEngine.Object)field.GetValue(this);
 
-                                EditorGetUnityEngineObjectIdenfication(i, json, target, getSceneGuidAndObjectIDMethod);                                
+                                //EditorGetUnityEngineObjectIdenfication(i, json, target, getSceneGuidAndObjectIDMethod);                                
                             }
                         }
                     }
@@ -437,6 +300,13 @@ namespace HephaestusForge
             }
 
             return _jsonFields;
+        }
+
+        internal SerializedData Serialized()
+        {
+            _polymorphismData = new SerializedData();
+            Serialize(_polymorphismData);
+            return _polymorphismData;
         }
     }
 }
